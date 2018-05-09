@@ -41,31 +41,6 @@ note: this driver has been tested on only a few systems, so bugs and glitches sh
       there is currently no official binary release, so while you are free to compile this source or
       use any derivative releases thereof, this driver should be considered experimental.
 
-development
------------
-
-  * sources are hosted at the voodoohda project site at google code: http://voodoohda.googlecode.com/
-  * code guidelines: four-space tab (not spaces), ~110 line width, k&r style
-  * the provided "helper.sh" utility can be used to clean or build the project, create a compiled
-    release package, or load and unload the driver for testing
-  * the latest cvs revision of the freebsd hdac driver can be found here:
-    http://www.freebsd.org/cgi/cvsweb.cgi/src/sys/dev/sound/pci/hda/
-    (the revision corresponding to voodoohda sources is identified by HDAC_REVISION)
-  * one of the main focuses in porting from hdac was to keep the structure and functionality of the
-    code (especially the widget parser) relatively close to that of the original code, in order to
-    ease integrating changes from upstream; that said, the code has been heavily reworked in some
-    places due to porting necessity as well as clarification
-
-hints
------
-
-  * use the provided 'getdump' utility to get a codec dump for debugging or to see how each logical
-    pcm device is configured, see pcmAttach notices (same notion as pcmN with freebsd hdac)
-  * one pcm device at a time can be active (unless aggregate devices are used), each is designated
-    by "Analog/Digital PCM #N" in sound preference pane - separate selectors for "Master", "PCM",
-    etc. are not different devices but correspond to standard oss controls
-  * to change sample rate or bit depth or setup aggregate devices use Audio Midi Setup.app
-
 known issues
 ------------
 
@@ -300,3 +275,29 @@ Add some macros for build with XCode 4.5.x.
     also some special handling in parser for ad1986a)
   * implemented user client and included tool (getdump) for obtaining codec dump
   * many internal fixes and improvements as well as massive source cleanup
+
+
+# Development
+-----------
+
+  * sources are hosted at the voodoohda project site at google code: http://voodoohda.googlecode.com/
+  * code guidelines: four-space tab (not spaces), ~110 line width, k&r style
+  * the provided "helper.sh" utility can be used to clean or build the project, create a compiled
+    release package, or load and unload the driver for testing
+  * the latest cvs revision of the freebsd hdac driver can be found here:
+    http://www.freebsd.org/cgi/cvsweb.cgi/src/sys/dev/sound/pci/hda/
+    (the revision corresponding to voodoohda sources is identified by HDAC_REVISION)
+  * one of the main focuses in porting from hdac was to keep the structure and functionality of the
+    code (especially the widget parser) relatively close to that of the original code, in order to
+    ease integrating changes from upstream; that said, the code has been heavily reworked in some
+    places due to porting necessity as well as clarification
+
+hints
+-----
+
+  * use the provided 'getdump' utility to get a codec dump for debugging or to see how each logical
+    pcm device is configured, see pcmAttach notices (same notion as pcmN with freebsd hdac)
+  * one pcm device at a time can be active (unless aggregate devices are used), each is designated
+    by "Analog/Digital PCM #N" in sound preference pane - separate selectors for "Master", "PCM",
+    etc. are not different devices but correspond to standard oss controls
+  * to change sample rate or bit depth or setup aggregate devices use Audio Midi Setup.app

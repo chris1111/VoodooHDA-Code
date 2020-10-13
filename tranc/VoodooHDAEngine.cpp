@@ -651,6 +651,7 @@ bool VoodooHDAEngine::publishChannelLayout(IOAudioStreamDirection direction, UIn
 					  kIOAudioEngineOutputChannelLayoutKey),
 					 layout))
 		goto error;
+  layout->release();
 	return true;
 
 error:

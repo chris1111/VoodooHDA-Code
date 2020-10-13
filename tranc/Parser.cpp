@@ -106,8 +106,13 @@ void VoodooHDADevice::probeCodec(Codec *codec)
 	startNode = HDA_PARAM_SUB_NODE_COUNT_START(subNode);
 	endNode = startNode + HDA_PARAM_SUB_NODE_COUNT_TOTAL(subNode);
 	dumpMsg("\tstartNode=%d endNode=%d\n", startNode, endNode);
+  int numNodes = endNode - startNode;
+  if (numNodes < 0 || numNodes > 50) {
+    errorMsg("wrong nodes number: start=%d end=%d\n", startNode, endNode);
+    return;
+  }
 	
-	codec->funcGroups = (FunctionGroup *) allocMem(sizeof (FunctionGroup) * (endNode - startNode));
+	codec->funcGroups = (FunctionGroup *) allocMem(sizeof (FunctionGroup) * numNodes);
 	if (!codec->funcGroups) {
 		errorMsg("error: couldn't allocate memory for function groups\n");
 		return;
@@ -148,7 +153,7 @@ void VoodooHDADevice::probeFunction(Codec *codec, nid_t nid)
 			(funcGroupType == HDA_PARAM_FCT_GRP_TYPE_NODE_TYPE_MODEM) ? "modem" : "unknown",
 			nid, funcGroup->startNode, funcGroup->endNode, funcGroup->numNodes);
 
-	if (funcGroup->numNodes > 0)
+	if (funcGroup->numNodes > 0 && funcGroup->numNodes < 50)
 		funcGroup->widgets = (Widget *) allocMem(sizeof (*(funcGroup->widgets)) * funcGroup->numNodes);
 	else {
 		funcGroup->widgets = NULL;
@@ -156,7 +161,7 @@ void VoodooHDADevice::probeFunction(Codec *codec, nid_t nid)
 		return;
 	}
 
-	if (!funcGroup->widgets) {
+	if (!funcGroup->widgets) { //allocMem contains own check
 		errorMsg("error: couldn't allocate memory for widgets\n");
 		funcGroup->endNode = funcGroup->startNode;
 		funcGroup->numNodes = 0;
@@ -377,8 +382,10 @@ void VoodooHDADevice::audioCtlParse(FunctionGroup *funcGroup)
 
 	funcGroup->audio.numControls = max;
 
-	if (max < 1)
+  if (max < 1 || max > 50) {
+    errorMsg("error: wrong controls number %d\n", max);
 		return;
+  }
 
 	controls = (AudioControl *) allocMem(sizeof (*controls) * max);
 	if (!controls) {
@@ -976,8 +983,10 @@ void VoodooHDADevice::audioAssociationParse(FunctionGroup *funcGroup)
 
 	funcGroup->audio.numAssocs = max;
 
-	if (max < 1)
+  if (max < 1 || max > 50) {
+    errorMsg("wrong assocs number! %d\n", max);
 		return;
+  }
 
 	assocs = (AudioAssoc *) allocMem(sizeof (*assocs) * max);
 	if (!assocs) {
@@ -1736,9 +1745,11 @@ void VoodooHDADevice::audioTraceAssociationExtra(FunctionGroup *funcGroup)
 	/* Find mixer associated with input, but supplying signal
 	   for output associations. Hope it will be input monitor. */
 	dumpMsg("Tracing input monitor\n");
+  /*
   if (0 && mDisableInputMonitor) {
     dumpMsg(" disabled by Info.plist set\n");
   } else {
+   */
     for (int j = funcGroup->startNode; j < funcGroup->endNode; j++) {
       Widget *widget = widgetGet(funcGroup, j);
       if (!widget || (widget->enable == 0))
@@ -1751,13 +1762,15 @@ void VoodooHDADevice::audioTraceAssociationExtra(FunctionGroup *funcGroup)
       if (audioTraceToOut(funcGroup, widget->nid, 0)) {
         //if(mVerbose > 0)
 				dumpMsg(" nid %d is input monitor\n", widget->nid);
+        /*
         if (0 && mDisableInputMonitor) {
           audioUndoTrace(funcGroup, widget->bindAssoc, -1);
         } else {
+         */
           widget->pflags |= HDA_ADC_MONITOR;
           widget->ossdev = SOUND_MIXER_IGAIN; //SOUND_MIXER_IMIX;
-        }
-      }
+//        }
+//      }
     }
     /* Other inputs monitor */
     /* Find input pins supplying signal for output associations.
@@ -1803,9 +1816,14 @@ void VoodooHDADevice::audioBindAssociation(FunctionGroup *funcGroup)
 	AudioAssoc *assocs = funcGroup->audio.assocs;
 	int cnt = 0, free_channels;
 
-	for (int j = 0; j < funcGroup->audio.numAssocs; j++)
+  for (int j = 0; j < funcGroup->audio.numAssocs; j++) {
 		if (assocs[j].enable)
 			cnt++;
+  }
+  if (cnt < 0 || cnt > 50) {
+    errorMsg("Wrong channels number %d!\n", cnt);
+    return;
+  }
 	if (mNumChannels == 0) {
 		mChannels = (Channel *) allocMem(sizeof (Channel) * cnt);
 		if (!mChannels) {
@@ -1816,7 +1834,7 @@ void VoodooHDADevice::audioBindAssociation(FunctionGroup *funcGroup)
 		mChannels = (Channel *) reallocMem(mChannels, sizeof (Channel) * (mNumChannels + cnt));
 		if (!mChannels) {
 			mNumChannels = 0;
-			errorMsg("Channels memory allocation failed!\n");
+			errorMsg("Channels memory reallocation failed!\n");
 			return;
 		}
 		/* Fixup relative pointers after realloc */
@@ -3785,7 +3803,7 @@ void VoodooHDADevice::audioCtlAmpGetInternal(nid_t cad, nid_t nid, int index, in
 void VoodooHDADevice::audioCtlAmpGetGain(AudioControl *control)
 {
 	nid_t nid, cad;
-	int lmute, rmute;
+	int lmute = 0, rmute = 0;
 	
 	cad = control->widget->funcGroup->codec->cad;
 	nid = control->widget->nid;

@@ -150,36 +150,11 @@ bool VoodooHDADevice::init(OSDictionary *dict)
 		errorMsg("error: couldn't cast command gate action handler\n");
 		return false;
 	}
-/*
-	mMsgBufferEnabled = false;
-	mMsgBufferSize = MSG_BUFFER_SIZE;
-	mMsgBufferPos = 0;
-	
-	mSwitchCh = false;
-//TODO - allocMem at init??? May be better to move it into start?
-	mMsgBuffer = (char *) allocMem(mMsgBufferSize);
-	if (!mMsgBuffer) {
-		errorMsg("error: couldn't allocate message buffer (%ld bytes)\n", mMsgBufferSize);
-		return false;
-	}
-	
-	mExtMessageLock = IOLockAlloc();
-	mExtMsgBufferSize = MSG_BUFFER_SIZE;
-	mExtMsgBufferPos = 0;
-	
-	mExtMsgBuffer = (char *) allocMem(mExtMsgBufferSize);
-	if (!mExtMsgBuffer) {
-		errorMsg("error: couldn't allocate ext message buffer (%ld bytes)\n", mExtMsgBufferSize);
-		return false;
-	}
-*/	
+
 	nSliderTabsCount = 0;
 	mPrefPanelMemoryBufSize = 0;
 	mPrefPanelMemoryBuf = 0;
 
-//	if (!super::init(dict))
-//		return false;
-	
 	return true;
 }
 
@@ -430,6 +405,8 @@ void VoodooHDADevice::disablePCIeNoSnoop(UInt16 vendorId)
 				mPciNub->configWrite16( INTEL_SCH_HDA_DEVC,	snoop16 & (~INTEL_SCH_HDA_DEVC_NOSNOOP));
 			}
 			break;
+		case AMD_VENDORID:
+			/* FALL THROUGH */
 		case ATI_VENDORID:
 			snoop8 = mPciNub->configRead8(0x42U);
 			if (!(snoop8 & 2U)) {
@@ -449,6 +426,9 @@ bool VoodooHDADevice::initHardware(IOService *provider)
 {
 	bool result = false;
 	UInt16 config, vendorId;
+  UInt32 gCtl;
+  UInt16 msiCtl;
+  
 //moved here from init ----------
   mMsgBufferEnabled = false;
 	mMsgBufferSize = MSG_BUFFER_SIZE;
@@ -523,13 +503,16 @@ bool VoodooHDADevice::initHardware(IOService *provider)
 	}
 	disablePCIeNoSnoop(vendorId);
 	if (vendorId == NVIDIA_VENDORID &&
-		!OSDynamicCast(OSBoolean, getProperty(kVoodooHDAAllowMSI)))
+      !OSDynamicCast(OSBoolean, getProperty(kVoodooHDAAllowMSI))) {
 		/*
 		 * Disable MSI for NVIDIA controller if not in Info.plist.
 		 *   Known to have problems with MSI (Quirk from HDAC)
 		 */
 		mAllowMSI = false;
-
+  }
+  msiCtl = mPciNub->configRead16(0x62);
+  logMsg("MSI_CTL=0x%04x\n", msiCtl);
+  
 	if (!getCapabilities()) {
 		errorMsg("error: getCapabilities failed\n");
 		goto done;
@@ -566,8 +549,10 @@ bool VoodooHDADevice::initHardware(IOService *provider)
 // logMsg("Starting RIRB Engine...\n");
 	startRirb();
 
-//	logMsg("Enabling controller interrupt...\n");
-	writeData32(HDAC_GCTL, readData32(HDAC_GCTL) | HDAC_GCTL_UNSOL);
+	logMsg("Enabling controller interrupt...\n");
+  gCtl = readData32(HDAC_GCTL);
+  logMsg("HDAC_CTL=0x%04x\n", gCtl);
+	writeData32(HDAC_GCTL, gCtl | HDAC_GCTL_UNSOL);
 	writeData32(HDAC_INTCTL, HDAC_INTCTL_CIE | HDAC_INTCTL_GIE);
 	IODelay(1000);
 
@@ -1571,7 +1556,7 @@ __attribute__((visibility("hidden")))
 void *VoodooHDADevice::allocMem(size_t size)
 {
 	void *addr = kern_os_malloc(size);
-	ASSERT(addr);
+//	ASSERT(addr); //will check result
 	return addr;
 }
 
@@ -1579,7 +1564,7 @@ __attribute__((visibility("hidden")))
 void *VoodooHDADevice::reallocMem(void *addr, size_t size)
 {
 	void *newAddr = kern_os_realloc(addr, size);
-	ASSERT(newAddr);
+//	ASSERT(newAddr); //will check result
 	return newAddr;
 }
 
@@ -2018,42 +2003,42 @@ void VoodooHDADevice::handleInterrupt()
 
 	mTotalInt++;
 	status = OSBitAndAtomic(0U, &mIntStatus);
-	if (!HDA_FLAG_MATCH(status, HDAC_INTSTS_GIS)) {
-		errorMsg("warning: reached handler with blank global interrupt status\n");
-		return;
-	}
+	while (HDA_FLAG_MATCH(status, HDAC_INTSTS_GIS)) {
 
-	trigger = 0;
+		trigger = 0;
+		
+		LOCK();
 
-	LOCK();
-
-	/* Was this a controller interrupt? */
-	if (HDA_FLAG_MATCH(status, HDAC_INTSTS_CIS)) {
-		UInt8 rirbStatus = readData8(HDAC_RIRBSTS);
-		/* Get as many responses that we can */
-		while (HDA_FLAG_MATCH(rirbStatus, HDAC_RIRBSTS_RINTFL)) {
-			writeData8(HDAC_RIRBSTS, HDAC_RIRBSTS_RINTFL);
-			if (rirbFlush() != 0)
-				trigger |= HDAC_TRIGGER_UNSOL;
-			rirbStatus = readData8(HDAC_RIRBSTS);
+		/* Was this a controller interrupt? */
+		if (HDA_FLAG_MATCH(status, HDAC_INTSTS_CIS)) {
+			UInt8 rirbStatus = readData8(HDAC_RIRBSTS);
+			/* Get as many responses that we can */
+			while (HDA_FLAG_MATCH(rirbStatus, HDAC_RIRBSTS_RINTFL)) {
+				writeData8(HDAC_RIRBSTS, HDAC_RIRBSTS_RINTFL);
+				if (rirbFlush() != 0)
+					trigger |= HDAC_TRIGGER_UNSOL;
+				rirbStatus = readData8(HDAC_RIRBSTS);
+			}
 		}
-	}
 
-	if (status & HDAC_INTSTS_SIS_MASK) {
-		for (int i = 0; i < mNumChannels; i++) {
-			if ((status & (1 << (mChannels[i].off >> 5))) &&
-					(handleStreamInterrupt(&mChannels[i]) != 0))
-				trigger |= (1 << i);
+		if (status & HDAC_INTSTS_SIS_MASK) {
+			for (int i = 0; i < mNumChannels; i++) {
+				if ((status & (1 << (mChannels[i].off >> 5))) &&
+				    (handleStreamInterrupt(&mChannels[i]) != 0))
+					trigger |= (1 << i);
+			}
 		}
+
+		for (int i = 0; i < mNumChannels; i++)
+			if (trigger & (1 << i))
+				handleChannelInterrupt(i);
+		if (trigger & HDAC_TRIGGER_UNSOL)
+			unsolqFlush();
+
+		UNLOCK();
+
+		status = OSBitAndAtomic(0U, &mIntStatus);
 	}
-
-	for (int i = 0; i < mNumChannels; i++)
-		if (trigger & (1 << i))
-			handleChannelInterrupt(i);
-	if (trigger & HDAC_TRIGGER_UNSOL)
-		unsolqFlush();
-
-	UNLOCK();
 }
 
 __attribute__((visibility("hidden")))
@@ -2374,7 +2359,9 @@ void VoodooHDADevice::mixerSetDefaults(PcmDevice *pcmDevice)
 {
 	//IOLog("VoodooHDADevice::mixerSetDefaults\n");
 	for (int n = 0; n < SOUND_MIXER_NRDEVICES; n++) {
-		audioCtlOssMixerSet(pcmDevice, n, mMixerDefaults[n], mMixerDefaults[n]);
+    uint32_t def = mMixerDefaults[n];
+    if (def > 100) def = 100;
+		audioCtlOssMixerSet(pcmDevice, n, def, def);
 	}
 //Slice - attention!	
 	if (audioCtlOssMixerSetRecSrc(pcmDevice, SOUND_MASK_INPUT) == 0)
@@ -2784,18 +2771,23 @@ void VoodooHDADevice::streamHDMIorDPExtraSetup(FunctionGroup* funcGroup, nid_t d
 		/*
 		 * Need Valid ELD to tell between DP or HDMI
 		 */
-		if (0 /* eld != NULL && eld_len >= 6 && ((eld[5] >> 2) & 0x3) == 1 */) { /* DisplayPort */
+#if DP_AUDIO
+		if (eld != NULL && eld_len >= 6 && ((eld[5] >> 2) & 0x3) == 1) { /* DisplayPort */
 			sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, 0x84), cad);
 			sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, 0x1b), cad);
 			sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, 0x44), cad);
-		} else {	/* HDMI */
+		} else {
+#endif
+      /* HDMI */
 			sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, 0x84), cad);
 			sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, 0x01), cad);
 			sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, 0x0a), cad);
 			csum = 0;
 			csum -= 0x84 + 0x01 + 0x0a + (hdmi_totalchn - 1) + hdmica[hdmi_totalchn - 1];
 			sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, csum), cad);
+#if DP_AUDIO
 		}
+#endif
 		sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, hdmi_totalchn - 1), cad);
 		sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, 0x00), cad);
 		sendCommand(HDA_CMD_SET_HDMI_DIP_DATA(cad, nid_pin, 0x00), cad);

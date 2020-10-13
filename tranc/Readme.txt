@@ -77,6 +77,9 @@ see license.txt for details and copyright notices
 
 changelog
 ---------
+v2.9.2, r154
+- fix compilation error in private_xmmintrin.h
+
 v2.9.1, r148
 - Eliminate use of Xcode's xmmintrin
 

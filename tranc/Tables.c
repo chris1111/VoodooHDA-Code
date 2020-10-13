@@ -98,7 +98,9 @@ const ControllerListItem gControllerList[] = {
   { HDA_ATI_BONAIR,			"AMD BONAIR"},
   { HDA_ATI_TAHITI,			"AMD TAHITI"},
   { HDA_ATI_HAWAII,			"AMD HAWAII"},
-	{ HDA_AMD_HUDSON2,			"AMD Hudson-2" },
+  { HDA_ATI_BUFFIN,     "AMD BUFFIN"},
+  { HDA_ATI_VEGA,       "AMD VEGA"},
+	{ HDA_AMD_HUDSON2,		"AMD Hudson-2" },
 
   { HDA_RDC_M3010,			"RDC M3010"},
 	{ HDA_VIA_VT82XX,			"VIA VT8251/8237A" },
